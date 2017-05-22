@@ -425,6 +425,7 @@ function Architect(config) {
     app.config = config;
     app.packages = {};
     app.pluginToPackage = {};
+    app.packagesStatus = {};
     
     var isAdditionalMode;
     var services = app.services = {
@@ -454,13 +455,16 @@ function Architect(config) {
             });
         }
         
-        var m = /^plugins\/([^\/]+)|\/plugins\/[^\/]+\/([^\/]+)/.exec(plugin.packagePath);
-        var packageName = m && (m[1] || m[2]);
+        var packageName = plugin.packageName;
+        if( !packageName ){
+            var m = /^plugins\/([^\/]+)|\/plugins\/[^\/]+\/([^\/]+)/.exec(plugin.packagePath);
+            packageName = m && (m[1] || m[2]);
+        }
         if (!app.packages[packageName]) app.packages[packageName] = [];
         
         if (DEBUG) {
             recur++;
-            plugin.setup(plugin, imports, register);
+            plugin.setup(plugin, imports, register, { packageName: packageName, on: app.on.bind(app) } );
             
             while (callnext && recur <= 1) {
                 callnext = false;
@@ -471,7 +475,7 @@ function Architect(config) {
         else {
             try {
                 recur++;
-                plugin.setup(plugin, imports, register);
+                plugin.setup(plugin, imports, register, { packageName: packageName, on: app.on.bind(app) });
             } catch (e) {
                 e.plugin = plugin;
                 app.emit("error", e);
@@ -560,6 +564,29 @@ Architect.prototype.getService = function(name) {
         throw new Error("Service '" + name + "' not found in architect app!");
     }
     return this.services[name];
+};
+
+Architect.prototype.start = function(data) {
+    this.processAction( 'start', data, 'started' );
+};
+Architect.prototype.update = function(data) {
+    this.processAction( 'update', data, 'updated' );
+};
+Architect.prototype.stop = function(data) {
+    this.processAction( 'stop', data, 'stopped' );
+};
+
+Architect.prototype.processAction = function(event, data, status) {
+    const self = this;
+    var numberOfPackages = this.listenerCount(event);
+
+    this.emit(event, data, function(err, data){
+        numberOfPackages--;
+        self.packagesStatus[this.packageName] = status;
+        if(!numberOfPackages){
+            self.emit(status, self.packagesStatus);
+        }
+    });
 };
 
 // Returns an event emitter that represents the app.  It can emit events.
